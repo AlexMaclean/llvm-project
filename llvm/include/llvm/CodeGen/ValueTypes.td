@@ -11,12 +11,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-class ValueType<int size, int value = -1> {
+class ValueType<int size, int value = ?> {
   string Namespace = "MVT";
   string LLVMName = NAME;
   int Size = size;
-  int Value = !if(!ne(value, -1), value,
-                  !add(!size(!instances<ValueType>()), 1));
+  int Value = !if(!initialized(value),
+                  !add(!size(!instances<ValueType>()), 1), value);
   int nElem = 1;
   ValueType ElementType = ?;
   bit isOverloaded = false;
@@ -32,21 +32,21 @@ class ValueType<int size, int value = -1> {
   bit isCheriCapability = false;
 }
 
-class VTAny<int value = -1> : ValueType<0, value> {
+class VTAny<int value = ?> : ValueType<0, value> {
   let isOverloaded = true;
 }
 
-class VTInt<int size, int value = -1>
+class VTInt<int size, int value = ?>
     : ValueType<size, value> {
   let isInteger = true;
 }
 
-class VTFP<int size, int value = -1>
+class VTFP<int size, int value = ?>
     : ValueType<size, value> {
   let isFP = true;
 }
 
-class VTVec<int nelem, ValueType elt, int value = -1>
+class VTVec<int nelem, ValueType elt, int value = ?>
     : ValueType<!mul(nelem, elt.Size), value> {
   let nElem = nelem;
   let ElementType = elt;
@@ -55,19 +55,19 @@ class VTVec<int nelem, ValueType elt, int value = -1>
   let isVector = true;
 }
 
-class VTScalableVec<int nelem, ValueType elt, int value = -1>
+class VTScalableVec<int nelem, ValueType elt, int value = ?>
     : VTVec<nelem, elt, value> {
   let isScalable = true;
 }
 
-class VTVecTup<int size, int nf, ValueType dummy_elt, int value = -1>
+class VTVecTup<int size, int nf, ValueType dummy_elt, int value = ?>
     : ValueType<size, value> {
   let NF = nf;
   let ElementType = dummy_elt;
   let isRISCVVecTuple = true;
 }
 
-class VTCheriCapability<int size, int value = -1> : ValueType<size, value> {
+class VTCheriCapability<int size, int value = ?> : ValueType<size, value> {
   let isCheriCapability = true;
 }
 
