@@ -494,9 +494,8 @@ define ptr @shl_add_or(i64 %a, ptr %ptr) {
 ; CHECK-SAME: i64 [[A:%.*]], ptr [[PTR:%.*]]) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[SHL:%.*]] = shl i64 [[A]], 2
-; CHECK-NEXT:    [[OR2:%.*]] = add i64 [[SHL]], 1
-; CHECK-NEXT:    [[TMP0:%.*]] = getelementptr float, ptr [[PTR]], i64 [[OR2]]
-; CHECK-NEXT:    [[P3:%.*]] = getelementptr i8, ptr [[TMP0]], i64 48
+; CHECK-NEXT:    [[TMP0:%.*]] = getelementptr float, ptr [[PTR]], i64 [[SHL]]
+; CHECK-NEXT:    [[P3:%.*]] = getelementptr i8, ptr [[TMP0]], i64 52
 ; CHECK-NEXT:    ret ptr [[P3]]
 ;
 entry:

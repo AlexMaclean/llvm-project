@@ -221,6 +221,16 @@ public:
   static std::optional<APInt> Find(Value *Idx, GetElementPtrInst *GEP);
 
 private:
+  struct ChainEntry {
+    User *Node;
+    /// Binary operand followed by the chain.
+    unsigned NextOperand = 0;
+    /// Override for the other operand, or nullptr to keep it.
+    ConstantInt *OtherReplacement = nullptr;
+    /// Replacement for a terminal ConstantInt, or nullptr to use zero.
+    ConstantInt *ConstantReplacement = nullptr;
+  };
+
   ConstantOffsetExtractor(BasicBlock::iterator InsertionPt)
       : IP(InsertionPt), DL(InsertionPt->getDataLayout()), SQ(DL) {}
 
@@ -241,8 +251,8 @@ private:
                             bool SignExtended, bool ZeroExtended);
 
   /// A helper function to look into both operands of a binary operator.
-  std::optional<APInt>
-  findInEitherOperand(BinaryOperator *BO, bool SignExtended, bool ZeroExtended);
+  std::optional<APInt> findInEitherOperand(ChainEntry &Entry, bool SignExtended,
+                                           bool ZeroExtended);
 
   /// After finding the constant offset C from the GEP index I, we build a new
   /// index I' s.t. I' + C = I. This function builds and returns the new
@@ -314,16 +324,11 @@ private:
   ///   Analysis: DisjointBits = 3 & KnownZeros(%ptr) = 0b11 & 0b01 = 0b01
   ///   Result:   `(xor %ptr, 2) + 1` where 1 can be folded into address mode
   ///
-  /// \param XorInst The XOR binary operator to analyze
+  /// \param Entry The chain entry for the XOR binary operator to analyze
   /// \return Returns the disjoint bits (the extractable offset), or
-  /// std::nullopt if none exist. On success, stores NonDisjointBits in
-  /// NonDisjointXorConstantBits.
-  std::optional<APInt> extractDisjointBitsFromXor(BinaryOperator *XorInst);
-
-  /// The non-disjoint bits remaining after xor decomposition in
-  /// `extractDisjointBitsFromXor`, which are later used while replacing the
-  /// original xor constant operand.
-  ConstantInt *NonDisjointXorConstantBits = nullptr;
+  /// std::nullopt if none exist. On success, records the XOR constant as the
+  /// chain terminator and NonDisjointBits as the replacement constant.
+  std::optional<APInt> extractDisjointBitsFromXor(ChainEntry &Entry);
 
   /// The path from the constant offset to the old GEP index. e.g., if the GEP
   /// index is "a * b + (c + 5)". After running function find, UserChain[0] will
@@ -331,7 +336,7 @@ private:
   /// UserChain[2] will be the entire expression "a * b + (c + 5)".
   ///
   /// This path helps to rebuild the new GEP index.
-  SmallVector<User *, 8> UserChain;
+  SmallVector<ChainEntry, 8> UserChain;
 
   /// A data structure used in rebuildWithoutConstOffset. Contains all
   /// sext/zext/trunc instructions along UserChain.
@@ -685,37 +690,46 @@ bool ConstantOffsetExtractor::canTraceInto(bool SignExtended, bool ZeroExtended,
 }
 
 std::optional<APInt> ConstantOffsetExtractor::findInEitherOperand(
-    BinaryOperator *BO, bool SignExtended, bool ZeroExtended) {
+    ChainEntry &Entry, bool SignExtended, bool ZeroExtended) {
+  auto *BO = cast<BinaryOperator>(Entry.Node);
   // Save off the current height of the chain, in case we need to restore it.
   size_t ChainLength = UserChain.size();
 
-  // BO cannot use information from the base GEP at this point, so clear it.
-  std::optional<APInt> ConstantOffset =
-      find(BO->getOperand(0), nullptr, nullptr, SignExtended, ZeroExtended);
-  // If we found a constant offset in the left operand, stop and return that.
-  // This shortcut might cause us to miss opportunities of combining the
-  // constant offsets in both operands, e.g., (a + 4) + (b + 5) => (a + b) + 9.
-  // However, such cases are probably already handled by -instcombine,
-  // given this pass runs after the standard optimizations.
-  if (ConstantOffset)
-    return ConstantOffset;
-
-  // Reset the chain back to where it was when we started exploring this node,
-  // since visiting the LHS didn't pan out.
-  UserChain.resize(ChainLength);
-
-  ConstantOffset =
-      find(BO->getOperand(1), nullptr, nullptr, SignExtended, ZeroExtended);
-  // If U is a sub operator, negate the constant offset found in the right
-  // operand.
-  if (ConstantOffset && BO->getOpcode() == Instruction::Sub)
-    *ConstantOffset = -*ConstantOffset;
-
-  // If RHS wasn't a suitable candidate either, reset the chain again.
-  if (!ConstantOffset)
+  // Without extension, offsets can be combined using wrapping arithmetic at
+  // the current width. Otherwise, keep extracting a single constant.
+  bool CollectConstants = !SignExtended && !ZeroExtended;
+  // Prefer the nonconstant operand so we can collect offsets from it along
+  // with its literal sibling. Otherwise, keep the left-first search.
+  unsigned FirstOp = CollectConstants && isa<ConstantInt>(BO->getOperand(0)) &&
+                             !isa<ConstantInt>(BO->getOperand(1))
+                         ? 1
+                         : 0;
+  for (unsigned OpNo : {FirstOp, 1 - FirstOp}) {
     UserChain.resize(ChainLength);
+    Entry.NextOperand = OpNo;
+    // BO cannot use information from the base GEP at this point, so clear it.
+    std::optional<APInt> ConstantOffset = find(
+        BO->getOperand(OpNo), nullptr, nullptr, SignExtended, ZeroExtended);
+    if (!ConstantOffset)
+      continue;
 
-  return ConstantOffset;
+    if (CollectConstants) {
+      if (auto *CI = dyn_cast<ConstantInt>(BO->getOperand(1 - OpNo))) {
+        const APInt &LHS = OpNo == 0 ? *ConstantOffset : CI->getValue();
+        const APInt &RHS = OpNo == 1 ? *ConstantOffset : CI->getValue();
+        Entry.OtherReplacement =
+            ConstantInt::get(cast<IntegerType>(CI->getType()), 0);
+        return BO->getOpcode() == Instruction::Sub ? LHS - RHS : LHS + RHS;
+      }
+    }
+
+    if (BO->getOpcode() == Instruction::Sub && OpNo == 1)
+      *ConstantOffset = -*ConstantOffset;
+    return ConstantOffset;
+  }
+
+  UserChain.resize(ChainLength);
+  return std::nullopt;
 }
 
 std::optional<APInt>
@@ -731,19 +745,22 @@ ConstantOffsetExtractor::find(Value *V, GetElementPtrInst *GEP, Value *Idx,
   if (U == nullptr)
     return std::nullopt;
 
+  ChainEntry Entry{U};
   std::optional<APInt> ConstantOffset;
   if (ConstantInt *CI = dyn_cast<ConstantInt>(V)) {
     // Leave literal zero offsets alone.
     if (CI->isZero())
       return std::nullopt;
     // Hooray, we found it!
+    Entry.ConstantReplacement =
+        cast<ConstantInt>(ConstantInt::get(CI->getType(), 0));
     ConstantOffset = CI->getValue();
   } else if (BinaryOperator *BO = dyn_cast<BinaryOperator>(V)) {
     // Trace into subexpressions for more hoisting opportunities.
     if (canTraceInto(SignExtended, ZeroExtended, BO, GEP, Idx))
-      ConstantOffset = findInEitherOperand(BO, SignExtended, ZeroExtended);
+      ConstantOffset = findInEitherOperand(Entry, SignExtended, ZeroExtended);
     else if (BO->getOpcode() == Instruction::Xor)
-      ConstantOffset = extractDisjointBitsFromXor(BO);
+      ConstantOffset = extractDisjointBitsFromXor(Entry);
   } else if (isa<TruncInst>(V)) {
     if (SignExtended || ZeroExtended)
       return ConstantOffset;
@@ -768,7 +785,7 @@ ConstantOffsetExtractor::find(Value *V, GetElementPtrInst *GEP, Value *Idx,
   // If we found a constant offset, add it to the path for
   // rebuildWithoutConstOffset.
   if (ConstantOffset)
-    UserChain.push_back(U);
+    UserChain.push_back(Entry);
   return ConstantOffset;
 }
 
@@ -801,90 +818,85 @@ Value *ConstantOffsetExtractor::applyCasts(Value *V) {
 
 Value *ConstantOffsetExtractor::rebuildWithoutConstOffset() {
   distributeCastsAndCloneChain(UserChain.size() - 1);
-  // Remove all nullptrs (used to be sext/zext/trunc) from UserChain.
-  unsigned NewSize = 0;
-  for (User *I : UserChain) {
-    if (I != nullptr) {
-      UserChain[NewSize] = I;
-      NewSize++;
-    }
-  }
-  UserChain.resize(NewSize);
+  // Remove entries for casts, which have been distributed to the operands.
+  erase_if(UserChain,
+           [](const ChainEntry &Entry) { return Entry.Node == nullptr; });
   return removeConstOffset(UserChain.size() - 1);
 }
 
 Value *
 ConstantOffsetExtractor::distributeCastsAndCloneChain(unsigned ChainIndex) {
-  User *U = UserChain[ChainIndex];
-  if (ChainIndex == 0) {
-    assert(isa<ConstantInt>(U));
-    // If U is a ConstantInt, applyCasts will return a ConstantInt as well.
-    return UserChain[ChainIndex] = cast<ConstantInt>(applyCasts(U));
-  }
-
+  ChainEntry &Entry = UserChain[ChainIndex];
+  User *U = Entry.Node;
   if (CastInst *Cast = dyn_cast<CastInst>(U)) {
     assert(
         (isa<SExtInst>(Cast) || isa<ZExtInst>(Cast) || isa<TruncInst>(Cast)) &&
         "Only following instructions can be traced: sext, zext & trunc");
     CastInsts.push_back(Cast);
-    UserChain[ChainIndex] = nullptr;
+    Entry.Node = nullptr;
     return distributeCastsAndCloneChain(ChainIndex - 1);
   }
 
-  // Function find only trace into BinaryOperator and CastInst.
-  BinaryOperator *BO = cast<BinaryOperator>(U);
-  // OpNo = which operand of BO is UserChain[ChainIndex - 1]
-  unsigned OpNo = (BO->getOperand(0) == UserChain[ChainIndex - 1] ? 0 : 1);
-  Value *TheOther = applyCasts(BO->getOperand(1 - OpNo));
-  Value *NextInChain = distributeCastsAndCloneChain(ChainIndex - 1);
-
-  BinaryOperator *NewBO = nullptr;
-  if (OpNo == 0) {
-    NewBO = BinaryOperator::Create(BO->getOpcode(), NextInChain, TheOther,
-                                   BO->getName(), IP);
-  } else {
-    NewBO = BinaryOperator::Create(BO->getOpcode(), TheOther, NextInChain,
-                                   BO->getName(), IP);
+  if (isa<ConstantInt>(U)) {
+    assert(ChainIndex == 0 && "Constant must terminate UserChain");
+    Entry.Node = cast<ConstantInt>(applyCasts(U));
+    if (Entry.ConstantReplacement)
+      Entry.ConstantReplacement =
+          cast<ConstantInt>(applyCasts(Entry.ConstantReplacement));
+    return Entry.Node;
   }
-  return UserChain[ChainIndex] = NewBO;
+
+  BinaryOperator *BO = cast<BinaryOperator>(U);
+  if (Entry.OtherReplacement)
+    Entry.OtherReplacement =
+        cast<ConstantInt>(applyCasts(Entry.OtherReplacement));
+
+  Value *Operands[2];
+  if (ChainIndex == 0) {
+    Operands[0] = applyCasts(BO->getOperand(0));
+    Operands[1] = applyCasts(BO->getOperand(1));
+  } else {
+    unsigned OpNo = Entry.NextOperand;
+    assert(BO->getOperand(OpNo) == UserChain[ChainIndex - 1].Node);
+    Operands[1 - OpNo] = applyCasts(BO->getOperand(1 - OpNo));
+    Operands[OpNo] = distributeCastsAndCloneChain(ChainIndex - 1);
+  }
+  return Entry.Node = BinaryOperator::Create(BO->getOpcode(), Operands[0],
+                                             Operands[1], BO->getName(), IP);
 }
 
 Value *ConstantOffsetExtractor::removeConstOffset(unsigned ChainIndex) {
-  if (ChainIndex == 0) {
-    assert(isa<ConstantInt>(UserChain[ChainIndex]));
-    return ConstantInt::getNullValue(UserChain[ChainIndex]->getType());
+  const ChainEntry &Entry = UserChain[ChainIndex];
+  if (isa<ConstantInt>(Entry.Node)) {
+    assert(ChainIndex == 0 && "Constant must terminate UserChain");
+    if (Entry.ConstantReplacement)
+      return Entry.ConstantReplacement;
+    return ConstantInt::getNullValue(Entry.Node->getType());
   }
 
-  BinaryOperator *BO = cast<BinaryOperator>(UserChain[ChainIndex]);
+  BinaryOperator *BO = cast<BinaryOperator>(Entry.Node);
   assert((BO->use_empty() || BO->hasOneUse()) &&
          "distributeCastsAndCloneChain clones each BinaryOperator in "
          "UserChain, so no one should be used more than "
          "once");
 
-  unsigned OpNo = (BO->getOperand(0) == UserChain[ChainIndex - 1] ? 0 : 1);
-  assert(BO->getOperand(OpNo) == UserChain[ChainIndex - 1]);
-  Value *NextInChain = removeConstOffset(ChainIndex - 1);
-  Value *TheOther = BO->getOperand(1 - OpNo);
-
-  // When rewriting xor(TheOther, NextInChain) expressions, the original
-  // constant operand is replaced with the non-disjoints bits, which are the
-  // non-extractable bits, i.e., those that must remain in the xor (the other
-  // bits have already compounded the GEP offset).
-  if (BO->getOpcode() == Instruction::Xor) {
-    // The non-disjoint bits are cached in NonDisjointXorConstantBits, which is
-    // always up-to-date.
-    assert(NonDisjointXorConstantBits &&
-           "XOR in UserChain without recorded non-disjoint bits");
-    // Only casts can happen to be distributed among the xor operands.
-    NextInChain = applyCasts(NonDisjointXorConstantBits);
+  unsigned OpNo = Entry.NextOperand;
+  Value *Operands[] = {BO->getOperand(0), BO->getOperand(1)};
+  if (ChainIndex != 0) {
+    assert(BO->getOperand(OpNo) == UserChain[ChainIndex - 1].Node);
+    Operands[OpNo] = removeConstOffset(ChainIndex - 1);
   }
+  if (Entry.OtherReplacement)
+    Operands[1 - OpNo] = Entry.OtherReplacement;
+  Value *LHS = Operands[0];
+  Value *RHS = Operands[1];
 
-  // If NextInChain is 0 and not the LHS of a sub, we can simplify the
-  // sub-expression to be just TheOther.
-  if (ConstantInt *CI = dyn_cast<ConstantInt>(NextInChain)) {
-    if (CI->isZero() && !(BO->getOpcode() == Instruction::Sub && OpNo == 0))
-      return TheOther;
-  }
+  // Zero is a right identity for all supported operators, and a left identity
+  // for all except subtraction.
+  if (match(RHS, m_Zero()))
+    return LHS;
+  if (match(LHS, m_Zero()) && BO->getOpcode() != Instruction::Sub)
+    return RHS;
 
   BinaryOperator::BinaryOps NewOp = BO->getOpcode();
   if (BO->getOpcode() == Instruction::Or) {
@@ -904,26 +916,30 @@ Value *ConstantOffsetExtractor::removeConstOffset(unsigned ChainIndex) {
     NewOp = Instruction::Add;
   }
 
-  BinaryOperator *NewBO;
-  if (OpNo == 0) {
-    NewBO = BinaryOperator::Create(NewOp, NextInChain, TheOther, "", IP);
-  } else {
-    NewBO = BinaryOperator::Create(NewOp, TheOther, NextInChain, "", IP);
-  }
+  BinaryOperator *NewBO = BinaryOperator::Create(NewOp, LHS, RHS, "", IP);
   NewBO->takeName(BO);
   return NewBO;
 }
 
 std::optional<APInt>
-ConstantOffsetExtractor::extractDisjointBitsFromXor(BinaryOperator *XorInst) {
+ConstantOffsetExtractor::extractDisjointBitsFromXor(ChainEntry &Entry) {
+  auto *XorInst = cast<BinaryOperator>(Entry.Node);
   assert(XorInst && XorInst->getOpcode() == Instruction::Xor &&
          "Expected XOR instruction");
 
   Value *BaseOp;
   ConstantInt *XorConstantOp;
+  unsigned ConstantOpNo;
 
-  if (!match(XorInst, m_Xor(m_Value(BaseOp), m_ConstantInt(XorConstantOp))))
+  if ((XorConstantOp = dyn_cast<ConstantInt>(XorInst->getOperand(0)))) {
+    BaseOp = XorInst->getOperand(1);
+    ConstantOpNo = 0;
+  } else if ((XorConstantOp = dyn_cast<ConstantInt>(XorInst->getOperand(1)))) {
+    BaseOp = XorInst->getOperand(0);
+    ConstantOpNo = 1;
+  } else {
     return std::nullopt;
+  }
 
   const KnownBits BaseKnownBits = computeKnownBits(BaseOp, SQ);
   const APInt &ConstantValue = XorConstantOp->getValue();
@@ -943,15 +959,10 @@ ConstantOffsetExtractor::extractDisjointBitsFromXor(BinaryOperator *XorInst) {
   // Compute the remaining bits, i.e., the non-disjoint ones, which are those
   // that must be preserved in the xor.
   const APInt NonDisjointBits = ConstantValue & ~DisjointBits;
-  NonDisjointXorConstantBits =
-      ConstantInt::get(XorInst->getContext(), NonDisjointBits);
-
-  // UserChain maintains a path from the constant up to the GEP index. Push the
-  // xor constant operand, which is the constant leaf of the chain (which is
-  // also what `distributeCastsAndCloneChain` expects). Such a chained operand
-  // is the one to be replaced with the non-disjoint bits, while rebuilding the
-  // xor afterwards. The xor instruction itself is pushed upon returning.
-  UserChain.push_back(XorConstantOp);
+  Entry.NextOperand = ConstantOpNo;
+  UserChain.push_back(
+      ChainEntry{XorConstantOp, 0, nullptr,
+                 ConstantInt::get(XorInst->getContext(), NonDisjointBits)});
 
   return DisjointBits;
 }
@@ -1000,11 +1011,13 @@ Value *ConstantOffsetExtractor::Extract(Value *Idx, GetElementPtrInst *GEP,
     return nullptr;
   }
 
-  PreservesNUW = all_of(Extractor.UserChain, allowsPreservingNUW);
+  PreservesNUW = all_of(Extractor.UserChain, [](const ChainEntry &Entry) {
+    return allowsPreservingNUW(Entry.Node);
+  });
 
   // Separates the constant offset from the GEP index.
   Value *IdxWithoutConstOffset = Extractor.rebuildWithoutConstOffset();
-  UserChainTail = Extractor.UserChain.back();
+  UserChainTail = Extractor.UserChain.back().Node;
   return IdxWithoutConstOffset;
 }
 
@@ -1279,6 +1292,9 @@ bool SeparateConstOffsetFromGEP::splitGEP(GetElementPtrInst *GEP) {
       // Splits this GEP index into a variadic part and a constant offset, and
       // uses the variadic part as the new index.
       Value *Idx = GEP->getOperand(I);
+      // Nonnegative pieces can still come from an index that wraps negative.
+      // Check the original index as well as the remainder before keeping flags.
+      AllOffsetsNonNegative &= isKnownNonNegative(Idx, *DL);
       User *UserChainTail;
       bool PreservesNUW;
       Value *NewIdx = ConstantOffsetExtractor::Extract(Idx, GEP, UserChainTail,
@@ -1302,7 +1318,9 @@ bool SeparateConstOffsetFromGEP::splitGEP(GetElementPtrInst *GEP) {
     AllNUWPreserved &= Base->hasNoUnsignedWrap();
     NewGEPInBounds &= Base->isInBounds();
     NewGEPNUSW &= Base->hasNoUnsignedSignedWrap();
-    AllOffsetsNonNegative &= BaseByteOffset.isNonNegative();
+    // A positive base offset must not hide a negative extracted index offset.
+    AllOffsetsNonNegative &=
+        BaseByteOffset.isNonNegative() && NonBaseByteOffset.isNonNegative();
 
     GEP->setOperand(0, NewBase);
     RecursivelyDeleteTriviallyDeadInstructions(Base);
@@ -1326,9 +1344,10 @@ bool SeparateConstOffsetFromGEP::splitGEP(GetElementPtrInst *GEP) {
   // Therefore, the final code will be a semantically equivalent.
   GEPNoWrapFlags NewGEPFlags = GEPNoWrapFlags::none();
 
-  // If the initial GEP was inbounds/nusw and all variable indices and the
-  // accumulated offsets are non-negative, they can be added in any order and
-  // the intermediate results are in bounds and don't overflow in a nusw sense.
+  // If the initial GEP was inbounds/nusw and the original indices, remaining
+  // indices and extracted offsets are non-negative, they can be added in any
+  // order. The intermediate results are in bounds and do not overflow in a
+  // nusw sense.
   // So, we can preserve the inbounds/nusw flag for both GEPs.
   bool CanPreserveInBoundsNUSW = AllOffsetsNonNegative;
 

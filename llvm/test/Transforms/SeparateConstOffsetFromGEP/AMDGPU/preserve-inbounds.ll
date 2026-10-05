@@ -41,8 +41,8 @@ define ptr @sign_bit_clear(ptr %p, i64 %i) {
 ; CHECK-LABEL: @sign_bit_clear(
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[IDX:%.*]] = and i64 [[I:%.*]], 9223372036854775807
-; CHECK-NEXT:    [[TMP0:%.*]] = getelementptr inbounds i32, ptr [[P:%.*]], i64 [[IDX]]
-; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds i8, ptr [[TMP0]], i64 4
+; CHECK-NEXT:    [[TMP0:%.*]] = getelementptr i32, ptr [[P:%.*]], i64 [[IDX]]
+; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr i8, ptr [[TMP0]], i64 4
 ; CHECK-NEXT:    ret ptr [[ARRAYIDX]]
 ;
 entry:
@@ -109,8 +109,8 @@ define ptr @multi_level_mixed_okay(ptr %p, i64 %idx1, i64 %idx2) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[MASKED_IDX1:%.*]] = and i64 [[IDX1:%.*]], 255
 ; CHECK-NEXT:    [[MASKED_IDX2:%.*]] = and i64 [[IDX2:%.*]], 65535
-; CHECK-NEXT:    [[TMP0:%.*]] = getelementptr inbounds [10 x [20 x i32]], ptr [[P:%.*]], i64 0, i64 [[MASKED_IDX1]], i64 [[MASKED_IDX2]]
-; CHECK-NEXT:    [[ARRAYIDX3:%.*]] = getelementptr inbounds i8, ptr [[TMP0]], i64 156
+; CHECK-NEXT:    [[TMP0:%.*]] = getelementptr [10 x [20 x i32]], ptr [[P:%.*]], i64 0, i64 [[MASKED_IDX1]], i64 [[MASKED_IDX2]]
+; CHECK-NEXT:    [[ARRAYIDX3:%.*]] = getelementptr i8, ptr [[TMP0]], i64 156
 ; CHECK-NEXT:    ret ptr [[ARRAYIDX3]]
 ;
 entry:

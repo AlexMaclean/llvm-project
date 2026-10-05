@@ -5,7 +5,8 @@ define ptr @xor_decompose_constant_base_op(i32 %a) {
 ; CHECK-LABEL: define ptr @xor_decompose_constant_base_op(
 ; CHECK-SAME: i32 [[A:%.*]]) {
 ; CHECK-NEXT:    [[BASE:%.*]] = alloca [4 x i32], align 16
-; CHECK-NEXT:    [[UGLYGEP:%.*]] = getelementptr i8, ptr [[BASE]], i64 12
+; CHECK-NEXT:    [[XOR:%.*]] = xor i64 0, 3
+; CHECK-NEXT:    [[UGLYGEP:%.*]] = getelementptr [4 x i32], ptr [[BASE]], i64 0, i64 [[XOR]]
 ; CHECK-NEXT:    ret ptr [[UGLYGEP]]
 ;
   %base = alloca [4 x i32], align 16
@@ -18,10 +19,8 @@ define ptr @xor_decompose_constant_base_op_2(i32 %a) {
 ; CHECK-LABEL: define ptr @xor_decompose_constant_base_op_2(
 ; CHECK-SAME: i32 [[A:%.*]]) {
 ; CHECK-NEXT:    [[BASE:%.*]] = alloca [4 x i32], align 16
-; CHECK-NEXT:    [[XOR1:%.*]] = xor i64 2, 2
-; CHECK-NEXT:    [[TMP1:%.*]] = shl i64 [[XOR1]], 2
-; CHECK-NEXT:    [[UGLYGEP:%.*]] = getelementptr i8, ptr [[BASE]], i64 [[TMP1]]
-; CHECK-NEXT:    [[UGLYGEP2:%.*]] = getelementptr i8, ptr [[UGLYGEP]], i64 4
+; CHECK-NEXT:    [[XOR:%.*]] = xor i64 2, 3
+; CHECK-NEXT:    [[UGLYGEP2:%.*]] = getelementptr [4 x i32], ptr [[BASE]], i64 0, i64 [[XOR]]
 ; CHECK-NEXT:    ret ptr [[UGLYGEP2]]
 ;
   %base = alloca [4 x i32], align 16

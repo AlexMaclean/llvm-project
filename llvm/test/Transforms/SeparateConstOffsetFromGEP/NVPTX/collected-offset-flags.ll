@@ -9,17 +9,15 @@ define ptr @wrapping_inbounds(ptr %base, i32 %x) {
 ; SPLIT-LABEL: define ptr @wrapping_inbounds(
 ; SPLIT-SAME: ptr [[BASE:%.*]], i32 [[X:%.*]]) {
 ; SPLIT-NEXT:    [[A:%.*]] = and i32 [[X]], 2147483647
-; SPLIT-NEXT:    [[C2:%.*]] = add i32 [[A]], 2
-; SPLIT-NEXT:    [[TMP1:%.*]] = getelementptr i8, ptr [[BASE]], i32 [[C2]]
-; SPLIT-NEXT:    [[GEP3:%.*]] = getelementptr i8, ptr [[TMP1]], i32 1
+; SPLIT-NEXT:    [[TMP1:%.*]] = getelementptr i8, ptr [[BASE]], i32 [[A]]
+; SPLIT-NEXT:    [[GEP3:%.*]] = getelementptr i8, ptr [[TMP1]], i32 3
 ; SPLIT-NEXT:    ret ptr [[GEP3]]
 ;
 ; LOWER-LABEL: define ptr @wrapping_inbounds(
 ; LOWER-SAME: ptr [[BASE:%.*]], i32 [[X:%.*]]) {
 ; LOWER-NEXT:    [[A:%.*]] = and i32 [[X]], 2147483647
-; LOWER-NEXT:    [[C2:%.*]] = add i32 [[A]], 2
-; LOWER-NEXT:    [[UGLYGEP:%.*]] = getelementptr i8, ptr [[BASE]], i32 [[C2]]
-; LOWER-NEXT:    [[UGLYGEP3:%.*]] = getelementptr i8, ptr [[UGLYGEP]], i32 1
+; LOWER-NEXT:    [[UGLYGEP:%.*]] = getelementptr i8, ptr [[BASE]], i32 [[A]]
+; LOWER-NEXT:    [[UGLYGEP3:%.*]] = getelementptr i8, ptr [[UGLYGEP]], i32 3
 ; LOWER-NEXT:    ret ptr [[UGLYGEP3]]
 ;
   %a = and i32 %x, 2147483647
@@ -34,17 +32,15 @@ define ptr @wrapping_nusw(ptr %base, i32 %x) {
 ; SPLIT-LABEL: define ptr @wrapping_nusw(
 ; SPLIT-SAME: ptr [[BASE:%.*]], i32 [[X:%.*]]) {
 ; SPLIT-NEXT:    [[A:%.*]] = and i32 [[X]], 2147483647
-; SPLIT-NEXT:    [[C2:%.*]] = add i32 [[A]], 2
-; SPLIT-NEXT:    [[TMP1:%.*]] = getelementptr i8, ptr [[BASE]], i32 [[C2]]
-; SPLIT-NEXT:    [[GEP3:%.*]] = getelementptr i8, ptr [[TMP1]], i32 1
+; SPLIT-NEXT:    [[TMP1:%.*]] = getelementptr i8, ptr [[BASE]], i32 [[A]]
+; SPLIT-NEXT:    [[GEP3:%.*]] = getelementptr i8, ptr [[TMP1]], i32 3
 ; SPLIT-NEXT:    ret ptr [[GEP3]]
 ;
 ; LOWER-LABEL: define ptr @wrapping_nusw(
 ; LOWER-SAME: ptr [[BASE:%.*]], i32 [[X:%.*]]) {
 ; LOWER-NEXT:    [[A:%.*]] = and i32 [[X]], 2147483647
-; LOWER-NEXT:    [[C2:%.*]] = add i32 [[A]], 2
-; LOWER-NEXT:    [[UGLYGEP:%.*]] = getelementptr i8, ptr [[BASE]], i32 [[C2]]
-; LOWER-NEXT:    [[UGLYGEP3:%.*]] = getelementptr i8, ptr [[UGLYGEP]], i32 1
+; LOWER-NEXT:    [[UGLYGEP:%.*]] = getelementptr i8, ptr [[BASE]], i32 [[A]]
+; LOWER-NEXT:    [[UGLYGEP3:%.*]] = getelementptr i8, ptr [[UGLYGEP]], i32 3
 ; LOWER-NEXT:    ret ptr [[UGLYGEP3]]
 ;
   %a = and i32 %x, 2147483647
@@ -59,17 +55,15 @@ define ptr @bounded_inbounds(ptr %base, i32 %x) {
 ; SPLIT-LABEL: define ptr @bounded_inbounds(
 ; SPLIT-SAME: ptr [[BASE:%.*]], i32 [[X:%.*]]) {
 ; SPLIT-NEXT:    [[A:%.*]] = and i32 [[X]], 31
-; SPLIT-NEXT:    [[C2:%.*]] = add i32 [[A]], 2
-; SPLIT-NEXT:    [[TMP1:%.*]] = getelementptr inbounds i8, ptr [[BASE]], i32 [[C2]]
-; SPLIT-NEXT:    [[GEP3:%.*]] = getelementptr inbounds i8, ptr [[TMP1]], i32 1
+; SPLIT-NEXT:    [[TMP1:%.*]] = getelementptr inbounds i8, ptr [[BASE]], i32 [[A]]
+; SPLIT-NEXT:    [[GEP3:%.*]] = getelementptr inbounds i8, ptr [[TMP1]], i32 3
 ; SPLIT-NEXT:    ret ptr [[GEP3]]
 ;
 ; LOWER-LABEL: define ptr @bounded_inbounds(
 ; LOWER-SAME: ptr [[BASE:%.*]], i32 [[X:%.*]]) {
 ; LOWER-NEXT:    [[A:%.*]] = and i32 [[X]], 31
-; LOWER-NEXT:    [[C2:%.*]] = add i32 [[A]], 2
-; LOWER-NEXT:    [[UGLYGEP:%.*]] = getelementptr i8, ptr [[BASE]], i32 [[C2]]
-; LOWER-NEXT:    [[UGLYGEP3:%.*]] = getelementptr i8, ptr [[UGLYGEP]], i32 1
+; LOWER-NEXT:    [[UGLYGEP:%.*]] = getelementptr i8, ptr [[BASE]], i32 [[A]]
+; LOWER-NEXT:    [[UGLYGEP3:%.*]] = getelementptr i8, ptr [[UGLYGEP]], i32 3
 ; LOWER-NEXT:    ret ptr [[UGLYGEP3]]
 ;
   %a = and i32 %x, 31
@@ -84,17 +78,15 @@ define ptr @bounded_nusw(ptr %base, i32 %x) {
 ; SPLIT-LABEL: define ptr @bounded_nusw(
 ; SPLIT-SAME: ptr [[BASE:%.*]], i32 [[X:%.*]]) {
 ; SPLIT-NEXT:    [[A:%.*]] = and i32 [[X]], 31
-; SPLIT-NEXT:    [[C2:%.*]] = add i32 [[A]], 2
-; SPLIT-NEXT:    [[TMP1:%.*]] = getelementptr nusw i8, ptr [[BASE]], i32 [[C2]]
-; SPLIT-NEXT:    [[GEP3:%.*]] = getelementptr nusw i8, ptr [[TMP1]], i32 1
+; SPLIT-NEXT:    [[TMP1:%.*]] = getelementptr nusw i8, ptr [[BASE]], i32 [[A]]
+; SPLIT-NEXT:    [[GEP3:%.*]] = getelementptr nusw i8, ptr [[TMP1]], i32 3
 ; SPLIT-NEXT:    ret ptr [[GEP3]]
 ;
 ; LOWER-LABEL: define ptr @bounded_nusw(
 ; LOWER-SAME: ptr [[BASE:%.*]], i32 [[X:%.*]]) {
 ; LOWER-NEXT:    [[A:%.*]] = and i32 [[X]], 31
-; LOWER-NEXT:    [[C2:%.*]] = add i32 [[A]], 2
-; LOWER-NEXT:    [[UGLYGEP:%.*]] = getelementptr i8, ptr [[BASE]], i32 [[C2]]
-; LOWER-NEXT:    [[UGLYGEP3:%.*]] = getelementptr i8, ptr [[UGLYGEP]], i32 1
+; LOWER-NEXT:    [[UGLYGEP:%.*]] = getelementptr i8, ptr [[BASE]], i32 [[A]]
+; LOWER-NEXT:    [[UGLYGEP3:%.*]] = getelementptr i8, ptr [[UGLYGEP]], i32 3
 ; LOWER-NEXT:    ret ptr [[UGLYGEP3]]
 ;
   %a = and i32 %x, 31
@@ -109,17 +101,15 @@ define ptr @preserve_nuw(ptr %base, i32 %x) {
 ; SPLIT-LABEL: define ptr @preserve_nuw(
 ; SPLIT-SAME: ptr [[BASE:%.*]], i32 [[X:%.*]]) {
 ; SPLIT-NEXT:    [[A:%.*]] = and i32 [[X]], 2147483647
-; SPLIT-NEXT:    [[C2:%.*]] = add i32 [[A]], 2
-; SPLIT-NEXT:    [[TMP1:%.*]] = getelementptr inbounds nuw i8, ptr [[BASE]], i32 [[C2]]
-; SPLIT-NEXT:    [[GEP3:%.*]] = getelementptr inbounds nuw i8, ptr [[TMP1]], i32 1
+; SPLIT-NEXT:    [[TMP1:%.*]] = getelementptr inbounds nuw i8, ptr [[BASE]], i32 [[A]]
+; SPLIT-NEXT:    [[GEP3:%.*]] = getelementptr inbounds nuw i8, ptr [[TMP1]], i32 3
 ; SPLIT-NEXT:    ret ptr [[GEP3]]
 ;
 ; LOWER-LABEL: define ptr @preserve_nuw(
 ; LOWER-SAME: ptr [[BASE:%.*]], i32 [[X:%.*]]) {
 ; LOWER-NEXT:    [[A:%.*]] = and i32 [[X]], 2147483647
-; LOWER-NEXT:    [[C2:%.*]] = add i32 [[A]], 2
-; LOWER-NEXT:    [[UGLYGEP:%.*]] = getelementptr i8, ptr [[BASE]], i32 [[C2]]
-; LOWER-NEXT:    [[UGLYGEP3:%.*]] = getelementptr i8, ptr [[UGLYGEP]], i32 1
+; LOWER-NEXT:    [[UGLYGEP:%.*]] = getelementptr i8, ptr [[BASE]], i32 [[A]]
+; LOWER-NEXT:    [[UGLYGEP3:%.*]] = getelementptr i8, ptr [[UGLYGEP]], i32 3
 ; LOWER-NEXT:    ret ptr [[UGLYGEP3]]
 ;
   %a = and i32 %x, 2147483647
@@ -136,7 +126,7 @@ define ptr @base_offset_cancellation(ptr %p, i32 %x) {
 ; SPLIT-SAME: ptr [[P:%.*]], i32 [[X:%.*]]) {
 ; SPLIT-NEXT:    [[M:%.*]] = and i32 [[X]], 536870911
 ; SPLIT-NEXT:    [[A:%.*]] = or i32 [[M]], 1610612736
-; SPLIT-NEXT:    [[GEP:%.*]] = getelementptr inbounds [1 x i8], ptr [[P]], i32 [[A]], i32 [[A]]
+; SPLIT-NEXT:    [[GEP:%.*]] = getelementptr [1 x i8], ptr [[P]], i32 [[A]], i32 [[A]]
 ; SPLIT-NEXT:    ret ptr [[GEP]]
 ;
 ; LOWER-LABEL: define ptr @base_offset_cancellation(
